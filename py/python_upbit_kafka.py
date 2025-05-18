@@ -82,7 +82,7 @@ class UpbitKafkaProducer:
             'batch.size': 32768,
             'linger.ms': 10,
             'compression.type': 'snappy',
-            'acks': 1,
+            'acks': 'all',
             'retries': 3,
             'max.in.flight.requests.per.connection': 5,
             'enable.idempotence': True,
@@ -123,7 +123,7 @@ class UpbitKafkaProducer:
         # 토픽 메타데이터 조회
         metadata = admin_client.list_topics(timeout=10)
         if self.topic not in metadata.topics:
-            print(f"토픽 '{self.topic}'을 생성합니다...")
+            print(f"[{self.producer_id}] 토픽 '{self.topic}'을 생성합니다...")
             new_topic = NewTopic(
                 topic=self.topic,
                 num_partitions=6,
@@ -135,9 +135,9 @@ class UpbitKafkaProducer:
             for topic, future in futures.items():
                 try:
                     future.result()
-                    print(f"토픽 '{topic}' 생성 완료")
+                    print(f"[{self.producer_id}] 토픽 '{topic}' 생성 완료")
                 except Exception as e:
-                    print(f"토픽 생성 오류: {e}")
+                    print(f"[{self.producer_id}] 토픽 생성 오류: {e}")
 
     def _poll_delivery_reports(self):
         """메시지 delivery report 폴링"""
@@ -145,7 +145,7 @@ class UpbitKafkaProducer:
             try:
                 self.kafka_producer.poll(0.1)
             except Exception as e:
-                print(f"Poll 오류: {e}")
+                print(f"[{self.producer_id}] Poll 오류: {e}")
 
     def _monitor_system(self):
         while self.running:
@@ -156,7 +156,7 @@ class UpbitKafkaProducer:
         """Kafka 메시지 전송 결과 콜백"""
         if err is not None:
             self.delivery_reports['error'] += 1
-            print(f"메시지 전송 실패: {err}")
+            print(f"[{self.producer_id}] 메시지 전송 실패: {err}")
         else:
             self.delivery_reports['success'] += 1
 
@@ -216,7 +216,7 @@ class UpbitKafkaProducer:
                 self.kafka_producer.poll(0)
 
         except Exception as e:
-            print(f"Kafka 전송 오류: {e}")
+            print(f"[{self.producer_id}] Kafka 전송 오류: {e}")
         finally:
             self.monitor.end_timer('kafka_send')
 
@@ -241,10 +241,10 @@ class UpbitKafkaProducer:
             try:
                 self.monitor.start_timer(f'websocket_connection_{connection_index}')
                 async with websockets.connect(
-                    url,
-                    ping_interval=20,
-                    ping_timeout=10,
-                    close_timeout=10
+                        url,
+                        ping_interval=20,
+                        ping_timeout=10,
+                        close_timeout=10
                 ) as websocket:
                     self.monitor.end_timer(f'websocket_connection_{connection_index}')
 
@@ -279,7 +279,7 @@ class UpbitKafkaProducer:
                             await self.send_to_kafka(data)
 
                         except Exception as e:
-                            print(f"메시지 처리 오류: {e}")
+                            print(f"[{self.producer_id}] 메시지 처리 오류: {e}")
                         finally:
                             self.monitor.end_timer('message_processing')
 
@@ -401,8 +401,8 @@ class UpbitKafkaProducer:
 
 async def main():
     # 환경 변수에서 설정 읽기
-    KAFKA_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-    TOPIC = os.getenv('KAFKA_TOPIC', 'upbit-krw-ticker')
+    KAFKA_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '192.168.0.57:9092')
+    TOPIC = os.getenv('KAFKA_TOPIC', 'upbit-krw-ticker-py')
     TEST_DURATION = int(os.getenv('TEST_DURATION', '60'))
     PRODUCER_ID = os.getenv('PRODUCER_ID', 'python')
 
