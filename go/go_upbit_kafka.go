@@ -84,8 +84,8 @@ func (pm *PerformanceMonitor) GetReport() map[string]interface{} {
 		sort.Float64s(times)
 
 		avg := average(times)
-		min := times[0]
-		max := times[len(times)-1]
+		minVal := times[0]
+		maxVal := times[len(times)-1]
 
 		var p95, p99 float64
 		if len(times) > 1 {
@@ -107,8 +107,8 @@ func (pm *PerformanceMonitor) GetReport() map[string]interface{} {
 		report[operation] = map[string]interface{}{
 			"count":  len(times),
 			"avg_ms": avg * 1000,
-			"min_ms": min * 1000,
-			"max_ms": max * 1000,
+			"min_ms": minVal * 1000,
+			"max_ms": maxVal * 1000,
 			"p95_ms": p95 * 1000,
 			"p99_ms": p99 * 1000,
 		}
@@ -117,13 +117,10 @@ func (pm *PerformanceMonitor) GetReport() map[string]interface{} {
 	if len(pm.memoryUsage) > 0 {
 		report["memory"] = map[string]interface{}{
 			"avg_mb": average(pm.memoryUsage),
-			"max_mb": max(pm.memoryUsage),
-			"min_mb": min(pm.memoryUsage),
+			"max_mb": maxFloat64(pm.memoryUsage),
+			"min_mb": minFloat64(pm.memoryUsage),
 		}
 	}
-
-	_ = time.Since(pm.startTime).Seconds()
-	_ = atomic.LoadInt64(&pm.messageCount)
 
 	return report
 }
@@ -139,7 +136,7 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 
-func max(values []float64) float64 {
+func maxFloat64(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
@@ -152,7 +149,7 @@ func max(values []float64) float64 {
 	return maxVal
 }
 
-func min(values []float64) float64 {
+func minFloat64(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
@@ -393,10 +390,7 @@ func (ukp *UpbitKafkaProducer) SendToKafka(message map[string]interface{}) {
 
 	ukp.monitor.IncrementMessageCount()
 
-	// 주기적으로 이벤트 폴링
-	if atomic.LoadInt64(&ukp.monitor.messageCount)%1000 == 0 {
-		ukp.producer.Poll(0)
-	}
+	// Go에서는 Events() 채널을 통해 자동으로 이벤트가 처리되므로 Poll 메서드가 불필요
 }
 
 func (ukp *UpbitKafkaProducer) createWebSocketConnection(marketsChunk []string, connectionIndex int, wg *sync.WaitGroup) {

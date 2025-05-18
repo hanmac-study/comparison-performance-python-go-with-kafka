@@ -82,7 +82,7 @@ services:
     restart: "no"
 
   analyzer:
-    build:r
+    build:
       context: ./analyzer
       dockerfile: Dockerfile
     depends_on:
