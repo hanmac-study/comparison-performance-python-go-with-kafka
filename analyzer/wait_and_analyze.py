@@ -1,7 +1,9 @@
-import time
-import os
 import json
+import os
+import time
+
 from performance_analyzer import PerformanceAnalyzer
+
 
 def wait_for_reports():
     """두 프로듀서의 보고서 파일이 생성될 때까지 대기"""

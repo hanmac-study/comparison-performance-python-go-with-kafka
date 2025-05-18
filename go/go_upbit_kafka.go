@@ -181,13 +181,6 @@ type UpbitKafkaProducer struct {
 	config               kafka.ConfigMap
 	websocketConnections []WebSocketConnection
 	connectionsMutex     sync.Mutex
-
-	// 정확한 시간 측정을 위한 변수
-	testStartTime           time.Time
-	testEndTime             time.Time
-	dataCollectionStart     time.Time
-	connectionCompletedTime time.Time
-	dataCollectionEnabled   int32
 }
 
 func NewUpbitKafkaProducer(kafkaServers string, topic string, producerID string) (*UpbitKafkaProducer, error) {
@@ -206,6 +199,8 @@ func NewUpbitKafkaProducer(kafkaServers string, topic string, producerID string)
 		// 처리량 최적화
 		"queue.buffering.max.messages": 1000000,
 		"queue.buffering.max.kbytes":   1048576,
+		// 메모리 최적화
+		"go.delivery.reports": true,
 	}
 
 	producer, err := kafka.NewProducer(&config)
@@ -304,7 +299,7 @@ func (ukp *UpbitKafkaProducer) handleKafkaEvents() {
 }
 
 func (ukp *UpbitKafkaProducer) monitorSystem() {
-	ticker := time.NewTicker(5 * time.Second) // 5초마다
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -314,30 +309,16 @@ func (ukp *UpbitKafkaProducer) monitorSystem() {
 				return
 			}
 			ukp.monitor.RecordSystemMetrics()
-
-			// 데이터 수집 중일 때만 상태 출력
-			if atomic.LoadInt32(&ukp.dataCollectionEnabled) == 1 {
-				messageCount := atomic.LoadInt64(&ukp.monitor.messageCount)
-				elapsed := time.Since(ukp.dataCollectionStart).Seconds()
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				memoryMB := float64(m.Alloc) / 1024 / 1024
-
-				fmt.Printf("[%s] 데이터 수집 중 %.1f초 - 메모리: %.2fMB, 메시지 수: %d, 성공: %d, 실패: %d\n",
-					ukp.producerID, elapsed, memoryMB, messageCount,
-					atomic.LoadInt64(&ukp.deliveryReports.success),
-					atomic.LoadInt64(&ukp.deliveryReports.error))
-			}
 		}
 	}
 }
 
-func (ukp *UpbitKafkaProducer) waitForNext10SecondInterval() time.Time {
+func (ukp *UpbitKafkaProducer) waitForNextInterval() float64 {
 	currentTime := time.Now()
 	currentSecond := currentTime.Second()
 
-	// 다음 10의 배수 초 계산
-	nextInterval := ((currentSecond / 10) + 1) * 10
+	// 다음 5의 배수 초 계산
+	nextInterval := ((currentSecond / 5) + 1) * 5
 	var targetTime time.Time
 	if nextInterval >= 60 {
 		nextInterval = 0
@@ -349,17 +330,14 @@ func (ukp *UpbitKafkaProducer) waitForNext10SecondInterval() time.Time {
 	}
 
 	waitDuration := targetTime.Sub(currentTime)
-
-	fmt.Printf("[%s] WebSocket 연결 완료: %s\n", ukp.producerID, ukp.connectionCompletedTime.Format("15:04:05"))
-	fmt.Printf("[%s] 다음 10의 배수 초(%d초)까지 %.2f초 대기...\n", ukp.producerID, nextInterval, waitDuration.Seconds())
-
 	if waitDuration > 0 {
+		fmt.Printf("[%s] 다음 시작 시점까지 %.2f초 대기...\n", ukp.producerID, waitDuration.Seconds())
 		time.Sleep(waitDuration)
 	}
 
 	actualStart := time.Now()
-	fmt.Printf("[%s] 데이터 수집 시작 시간: %s (초: %d)\n", ukp.producerID, actualStart.Format("15:04:05"), actualStart.Second())
-	return actualStart
+	fmt.Printf("[%s] 테스트 시작 시간: %.3f (초: %d)\n", ukp.producerID, float64(actualStart.UnixNano())/1e9, actualStart.Second())
+	return float64(actualStart.UnixNano()) / 1e9
 }
 
 func (ukp *UpbitKafkaProducer) GetAllMarkets() ([]string, error) {
@@ -388,16 +366,6 @@ func (ukp *UpbitKafkaProducer) GetAllMarkets() ([]string, error) {
 }
 
 func (ukp *UpbitKafkaProducer) SendToKafka(message map[string]interface{}) {
-	// 데이터 수집이 활성화되지 않았으면 전송하지 않음
-	if atomic.LoadInt32(&ukp.dataCollectionEnabled) == 0 {
-		return
-	}
-
-	// 데이터 수집 시간이 끝났으면 전송하지 않음
-	if time.Now().After(ukp.testEndTime) {
-		return
-	}
-
 	ukp.monitor.StartTimer("kafka_send")
 	defer ukp.monitor.EndTimer("kafka_send")
 
@@ -420,14 +388,7 @@ func (ukp *UpbitKafkaProducer) SendToKafka(message map[string]interface{}) {
 
 	ukp.monitor.IncrementMessageCount()
 
-	// 주기적으로 메시지 수와 진행상황 출력
-	messageCount := atomic.LoadInt64(&ukp.monitor.messageCount)
-	if messageCount%500 == 0 {
-		elapsed := time.Since(ukp.dataCollectionStart).Seconds()
-		if code, ok := message["code"].(string); ok {
-			fmt.Printf("[%s] 메시지 #%d 전송: 마켓 %s, 경과시간: %.1f초\n", ukp.producerID, messageCount, code, elapsed)
-		}
-	}
+	// Go에서는 Events() 채널을 통해 자동으로 이벤트가 처리되므로 Poll 메서드가 불필요
 }
 
 func (ukp *UpbitKafkaProducer) createWebSocketConnection(marketsChunk []string, connectionIndex int, wg *sync.WaitGroup) {
@@ -487,12 +448,6 @@ func (ukp *UpbitKafkaProducer) createWebSocketConnection(marketsChunk []string, 
 
 		// 메시지 수신 루프
 		for atomic.LoadInt32(&ukp.running) == 1 {
-			// 데이터 수집 시간이 끝났는지 체크
-			if time.Now().After(ukp.testEndTime) {
-				fmt.Printf("[%s] 연결 #%d: 데이터 수집 시간 종료\n", ukp.producerID, connectionIndex)
-				break
-			}
-
 			ukp.monitor.StartTimer("message_processing")
 
 			var message map[string]interface{}
@@ -510,7 +465,7 @@ func (ukp *UpbitKafkaProducer) createWebSocketConnection(marketsChunk []string, 
 			message["producer_id"] = ukp.producerID
 			message["connection_index"] = connectionIndex
 
-			// Kafka에 전송 (시간 체크는 SendToKafka 내부에서)
+			// Kafka에 전송
 			ukp.SendToKafka(message)
 
 			ukp.monitor.EndTimer("message_processing")
@@ -522,8 +477,8 @@ func (ukp *UpbitKafkaProducer) createWebSocketConnection(marketsChunk []string, 
 }
 
 func (ukp *UpbitKafkaProducer) ConnectAllWebSockets(markets []string) error {
-	// 마켓을 15개씩 청크로 분할 (연결당 마켓 수를 줄임)
-	marketsPerConnection := 15
+	// 마켓을 20개씩 청크로 분할
+	marketsPerConnection := 20
 	var marketChunks [][]string
 
 	for i := 0; i < len(markets); i += marketsPerConnection {
@@ -535,10 +490,10 @@ func (ukp *UpbitKafkaProducer) ConnectAllWebSockets(markets []string) error {
 	}
 
 	fmt.Printf("[%s] 총 %d개 마켓을 %d개 연결로 분할\n", ukp.producerID, len(markets), len(marketChunks))
-	fmt.Printf("[%s] Upbit API 제한 때문에 2개 연결마다 2초씩 대기하며 천천히 생성\n", ukp.producerID)
+	fmt.Printf("[%s] 업비트 API 제한에 따라 1초당 5개 연결씩 생성\n", ukp.producerID)
 
-	// 연결을 2개씩 묶어서 2초 간격으로 생성 (API 제한 완화)
-	connectionsPerBatch := 2
+	// 연결을 5개씩 묶어서 1초 간격으로 생성
+	connectionsPerBatch := 3
 	var wg sync.WaitGroup
 
 	for batchIndex := 0; batchIndex < len(marketChunks); batchIndex += connectionsPerBatch {
@@ -553,29 +508,21 @@ func (ukp *UpbitKafkaProducer) ConnectAllWebSockets(markets []string) error {
 			go ukp.createWebSocketConnection(marketChunks[chunkIndex], chunkIndex, &wg)
 		}
 
-		// 다음 배치 전에 2초 대기 (마지막 배치가 아닌 경우)
+		// 다음 배치 전에 1초 대기 (마지막 배치가 아닌 경우)
 		if batchEnd < len(marketChunks) {
-			progress := float64(batchEnd) / float64(len(marketChunks)) * 100
-			fmt.Printf("[%s] 다음 배치까지 2초 대기... (진행률: %.1f%%)\n", ukp.producerID, progress)
-			time.Sleep(2 * time.Second)
+			fmt.Printf("[%s] 다음 배치까지 1초 대기...\n", ukp.producerID)
+			time.Sleep(1 * time.Second)
 		}
 	}
 
-	// 모든 연결이 완료될 때까지 대기
-	fmt.Printf("[%s] 모든 WebSocket 연결 완료 대기 중...\n", ukp.producerID)
-	wg.Wait()
-
-	// 연결 완료 시간 기록
-	ukp.connectionCompletedTime = time.Now()
-	fmt.Printf("[%s] 모든 WebSocket 연결 생성 완료: %d개 연결\n", ukp.producerID, len(ukp.websocketConnections))
-
+	// 모든 연결이 완료될 때까지 대기하지 않고 바로 리턴
+	// (연결들은 백그라운드에서 계속 실행됨)
 	return nil
 }
 
 func (ukp *UpbitKafkaProducer) Run(duration time.Duration) (map[string]interface{}, error) {
-	// 전체 테스트 시작 시간 기록
-	ukp.testStartTime = time.Now()
-	fmt.Printf("[%s] 테스트 시작: %s\n", ukp.producerID, ukp.testStartTime.Format("15:04:05"))
+	// 5의 배수 초까지 대기
+	startTime := ukp.waitForNextInterval()
 
 	// 전체 마켓 목록 조회
 	fmt.Printf("[%s] 전체 마켓 목록을 가져오는 중...\n", ukp.producerID)
@@ -593,74 +540,25 @@ func (ukp *UpbitKafkaProducer) Run(duration time.Duration) (map[string]interface
 
 	fmt.Printf("[%s] 총 %d개 마켓 발견 (KRW: %d개)\n", ukp.producerID, len(markets), krwMarkets)
 
-	// WebSocket 연결 생성 (이 시간은 테스트 시간에 포함되지 않음)
-	fmt.Printf("[%s] WebSocket 연결을 천천히 생성하는 중...\n", ukp.producerID)
-	connectionStart := time.Now()
-	err = ukp.ConnectAllWebSockets(markets)
-	if err != nil {
-		return nil, err
-	}
-	connectionTime := time.Since(connectionStart).Seconds()
-	fmt.Printf("[%s] WebSocket 연결 생성 완료 (소요시간: %.2f초)\n", ukp.producerID, connectionTime)
+	// WebSocket 연결 시작
+	fmt.Printf("[%s] 전체 마켓 WebSocket 연결을 시작합니다...\n", ukp.producerID)
+	go ukp.ConnectAllWebSockets(markets)
 
-	// 연결이 안정화될 때까지 3초 대기
-	fmt.Printf("[%s] 연결 안정화를 위해 3초 대기...\n", ukp.producerID)
-	time.Sleep(3 * time.Second)
-
-	// 다음 10의 배수 초까지 대기
-	ukp.dataCollectionStart = ukp.waitForNext10SecondInterval()
-	ukp.testEndTime = ukp.dataCollectionStart.Add(duration)
-	atomic.StoreInt32(&ukp.dataCollectionEnabled, 1)
-
-	fmt.Printf("[%s] === 데이터 수집 시작 (정확히 %.0f초 동안) ===\n", ukp.producerID, duration.Seconds())
-	fmt.Printf("[%s] 수집 시작: %.3f\n", ukp.producerID, float64(ukp.dataCollectionStart.UnixNano())/1e9)
-	fmt.Printf("[%s] 수집 종료: %.3f\n", ukp.producerID, float64(ukp.testEndTime.UnixNano())/1e9)
-
-	// 진행 상황 출력 고루틴
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-
-		for atomic.LoadInt32(&ukp.dataCollectionEnabled) == 1 {
-			select {
-			case <-ticker.C:
-				elapsed := time.Since(ukp.dataCollectionStart).Seconds()
-				remaining := duration.Seconds() - elapsed
-				messageCount := atomic.LoadInt64(&ukp.monitor.messageCount)
-				msgRate := float64(messageCount) / elapsed
-				progress := elapsed / duration.Seconds() * 100
-
-				fmt.Printf("[%s] 진행률: %.1f%% (%.1f/%.0f초) - %d개 메시지, %.1f msg/sec, 남은시간: %.1f초\n",
-					ukp.producerID, progress, elapsed, duration.Seconds(), messageCount, msgRate, remaining)
-			}
-		}
-	}()
-
-	// 정확히 지정된 시간 동안 대기
+	// 지정된 시간 동안 실행
 	time.Sleep(duration)
 
-	// 데이터 수집 종료
-	atomic.StoreInt32(&ukp.dataCollectionEnabled, 0)
+	// 종료
 	atomic.StoreInt32(&ukp.running, 0)
-
-	actualEndTime := time.Now()
-	actualDuration := actualEndTime.Sub(ukp.dataCollectionStart).Seconds()
-
-	fmt.Printf("[%s] === 데이터 수집 종료 ===\n", ukp.producerID)
-	fmt.Printf("[%s] 실제 수집 시간: %.3f초\n", ukp.producerID, actualDuration)
-	fmt.Printf("[%s] 목표 시간과의 차이: %.3f초\n", ukp.producerID, actualDuration-duration.Seconds())
-	fmt.Printf("[%s] 총 메시지: %d개\n", ukp.producerID, atomic.LoadInt64(&ukp.monitor.messageCount))
+	fmt.Printf("[%s] 테스트 시간 종료\n", ukp.producerID)
 
 	// Producer 정리
 	fmt.Printf("[%s] 메시지 플러시 중...\n", ukp.producerID)
-	flushStart := time.Now()
 	ukp.producer.Flush(10 * 1000) // 10초 타임아웃
-	flushTime := time.Since(flushStart).Seconds()
-	fmt.Printf("[%s] 플러시 완료 (소요시간: %.2f초)\n", ukp.producerID, flushTime)
 	ukp.producer.Close()
 
 	// 성능 보고서 생성
 	baseReport := ukp.monitor.GetReport()
+	elapsedTime := time.Now().Unix() - int64(startTime)
 	messageCount := atomic.LoadInt64(&ukp.monitor.messageCount)
 
 	report := make(map[string]interface{})
@@ -669,20 +567,14 @@ func (ukp *UpbitKafkaProducer) Run(duration time.Duration) (map[string]interface
 	}
 
 	report["test_info"] = map[string]interface{}{
-		"producer_id":               ukp.producerID,
-		"test_start_time":           float64(ukp.testStartTime.UnixNano()) / 1e9,
-		"connection_completed_time": float64(ukp.connectionCompletedTime.UnixNano()) / 1e9,
-		"data_collection_start":     float64(ukp.dataCollectionStart.UnixNano()) / 1e9,
-		"data_collection_duration":  actualDuration,
-		"target_duration_seconds":   duration.Seconds(),
-		"time_accuracy_seconds":     actualDuration - duration.Seconds(),
-		"connection_setup_time":     connectionTime,
-		"message_flush_time":        flushTime,
-		"total_messages":            messageCount,
-		"messages_per_second":       float64(messageCount) / actualDuration,
-		"total_markets":             len(markets),
-		"krw_markets":               krwMarkets,
-		"websocket_connections":     len(ukp.websocketConnections),
+		"producer_id":           ukp.producerID,
+		"start_time":            startTime,
+		"total_runtime_seconds": float64(elapsedTime),
+		"total_messages":        messageCount,
+		"messages_per_second":   float64(messageCount) / float64(elapsedTime),
+		"total_markets":         len(markets),
+		"krw_markets":           krwMarkets,
+		"websocket_connections": len(ukp.websocketConnections),
 	}
 
 	report["delivery_reports"] = map[string]interface{}{
@@ -699,11 +591,9 @@ func (ukp *UpbitKafkaProducer) Run(duration time.Duration) (map[string]interface
 
 	ukp.connectionsMutex.Lock()
 	report["websocket_info"] = map[string]interface{}{
-		"connections":               ukp.websocketConnections,
-		"markets_per_connection":    15,
-		"connection_rate_limit":     2, // connections per 2 seconds
-		"connection_batch_size":     2,
-		"connection_batch_interval": 2,
+		"connections":            ukp.websocketConnections,
+		"markets_per_connection": 20,
+		"connection_rate_limit":  5, // per second
 	}
 	ukp.connectionsMutex.Unlock()
 
@@ -727,9 +617,8 @@ func main() {
 		log.Fatal("Kafka 프로듀서 생성 오류:", err)
 	}
 
-	fmt.Printf("[%s] 성능 테스트를 시작합니다 (데이터 수집: 정확히 %d초)\n", producerID, testDuration)
+	fmt.Printf("[%s] %d초 동안 성능 테스트를 시작합니다...\n", producerID, testDuration)
 	fmt.Printf("[%s] 사용 라이브러리: confluent-kafka-go\n", producerID)
-	fmt.Printf("[%s] WebSocket 연결 후 다음 10의 배수 초에 동기화되어 시작됩니다\n", producerID)
 
 	report, err := producer.Run(time.Duration(testDuration) * time.Second)
 	if err != nil {
@@ -742,10 +631,8 @@ func main() {
 
 	// 성공/실패 메시지 수 출력
 	deliveryReports := report["delivery_reports"].(map[string]interface{})
-	testInfo := report["test_info"].(map[string]interface{})
-	fmt.Printf("[%s] 성공한 메시지: %.0f\n", producerID, deliveryReports["success"])
-	fmt.Printf("[%s] 실패한 메시지: %.0f\n", producerID, deliveryReports["error"])
-	fmt.Printf("[%s] 데이터 수집 시간 정확도: %.3f초\n", producerID, testInfo["time_accuracy_seconds"])
+	fmt.Printf("[%s] 성공한 메시지: %d\n", producerID, deliveryReports["success"])
+	fmt.Printf("[%s] 실패한 메시지: %d\n", producerID, deliveryReports["error"])
 
 	// 결과를 파일로 저장
 	os.MkdirAll("/app/reports", 0755)

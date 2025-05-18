@@ -52,9 +52,10 @@ services:
 #        condition: service_healthy
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=192.168.0.57:9092
-      - KAFKA_TOPIC=upbit-krw-ticker
+      - KAFKA_TOPIC=upbit-krw-ticker-py
       - TEST_DURATION=60
       - PRODUCER_ID=python
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./reports:/app/reports
     networks:
@@ -65,9 +66,8 @@ services:
     build:
       context: ./go
       dockerfile: Dockerfile
-#    depends_on:
-#      kafka:
-#        condition: service_healthy
+    depends_on:
+      - python-producer
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=192.168.0.57:9092
       - KAFKA_TOPIC=upbit-krw-ticker
