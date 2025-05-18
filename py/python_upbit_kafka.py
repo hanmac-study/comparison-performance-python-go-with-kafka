@@ -150,6 +150,8 @@ class UpbitKafkaProducer:
     def _monitor_system(self):
         while self.running:
             self.monitor.record_system_metrics()
+            # 주기적으로 현재 시스템 메트릭을 출력
+            print(f"[{self.producer_id}] 현재 상태 - 메모리: {psutil.Process().memory_info().rss / 1024 / 1024:.2f}MB, CPU: {psutil.Process().cpu_percent():.2f}%, 메시지 수: {self.message_count}, 성공: {self.delivery_reports['success']}, 실패: {self.delivery_reports['error']}")
             time.sleep(1)
 
     def _delivery_callback(self, err, msg):
@@ -210,6 +212,12 @@ class UpbitKafkaProducer:
             )
 
             self.message_count += 1
+
+            # 주기적으로 메시지 수와 마켓 상태 출력
+            if self.message_count % 100 == 0:
+                market_code = message.get('code', '알 수 없음')
+                trade_price = message.get('trade_price', 0)
+                print(f"[{self.producer_id}] 메시지 #{self.message_count} 전송: 마켓 {market_code}, 가격 {trade_price}, 큐 상태: {self.kafka_producer.flush(0)}개 대기중")
 
             # 주기적으로 큐 플러시 (백프레셔 방지)
             if self.message_count % 1000 == 0:
@@ -275,6 +283,10 @@ class UpbitKafkaProducer:
                             data['producer_id'] = self.producer_id
                             data['connection_index'] = connection_index
 
+                            # 메시지 상태 출력 (제한적으로만 출력)
+                            if self.message_count % 500 == 0:
+                                print(f"[{self.producer_id}] 연결 #{connection_index} 메시지 수신: {data.get('code', '알 수 없음')}, 타입: {data.get('type', '알 수 없음')}, 타임스탬프: {data.get('timestamp', 0)}")
+
                             # Kafka에 전송
                             await self.send_to_kafka(data)
 
@@ -302,7 +314,7 @@ class UpbitKafkaProducer:
         print(f"[{self.producer_id}] 업비트 API 제한에 따라 1초당 5개 연결씩 생성")
 
         # 연결을 5개씩 묶어서 1초 간격으로 생성
-        connections_per_batch = 5
+        connections_per_batch = 3
         connection_tasks = []
 
         for batch_index in range(0, len(market_chunks), connections_per_batch):
@@ -345,12 +357,21 @@ class UpbitKafkaProducer:
         async def stop_after_duration():
             await asyncio.sleep(duration_seconds)
             self.running = False
-            print(f"[{self.producer_id}] 테스트 시간 종료")
+            print(f"[{self.producer_id}] 테스트 시간 종료 - 총 실행 시간: {time.time() - start_time:.2f}초, 총 메시지: {self.message_count}개")
 
-        # WebSocket 연결과 타이머를 동시에 실행
+        # 진행 상황 표시 태스크 추가
+        async def show_progress():
+            while self.running:
+                await asyncio.sleep(10)  # 10초마다 진행 상황 출력
+                elapsed = time.time() - start_time
+                msg_rate = self.message_count / elapsed if elapsed > 0 else 0
+                print(f"[{self.producer_id}] 진행 상황 - {elapsed:.1f}초 경과, {self.message_count}개 메시지, {msg_rate:.1f} msg/sec")
+
+        # WebSocket 연결, 타이머, 진행 상황 표시를 동시에 실행
         await asyncio.gather(
             self.connect_all_websockets(markets),
-            stop_after_duration()
+            stop_after_duration(),
+            show_progress()
         )
 
         # Kafka producer 정리

@@ -492,7 +492,7 @@ func (ukp *UpbitKafkaProducer) ConnectAllWebSockets(markets []string) error {
 	fmt.Printf("[%s] 업비트 API 제한에 따라 1초당 5개 연결씩 생성\n", ukp.producerID)
 
 	// 연결을 5개씩 묶어서 1초 간격으로 생성
-	connectionsPerBatch := 5
+	connectionsPerBatch := 3
 	var wg sync.WaitGroup
 
 	for batchIndex := 0; batchIndex < len(marketChunks); batchIndex += connectionsPerBatch {
@@ -510,7 +510,7 @@ func (ukp *UpbitKafkaProducer) ConnectAllWebSockets(markets []string) error {
 		// 다음 배치 전에 1초 대기 (마지막 배치가 아닌 경우)
 		if batchEnd < len(marketChunks) {
 			fmt.Printf("[%s] 다음 배치까지 1초 대기...\n", ukp.producerID)
-			time.Sleep(1 * time.Second)
+			time.Sleep(3 * time.Second)
 		}
 	}
 
