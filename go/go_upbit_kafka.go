@@ -192,17 +192,14 @@ func NewUpbitKafkaProducer(kafkaServers string, topic string, producerID string)
 		"batch.size":                            32768,
 		"linger.ms":                             10,
 		"compression.type":                      "snappy",
-		"acks":                                  1,
+		"acks":                                  "all",
 		"retries":                               3,
 		"max.in.flight.requests.per.connection": 5,
 		"enable.idempotence":                    true,
 		// 처리량 최적화
 		"queue.buffering.max.messages": 1000000,
 		"queue.buffering.max.kbytes":   1048576,
-		// 메모리 최적화
-		"go.delivery.reports":      true,
-		"go.events.channel.enable": true,
-		"go.events.channel.size":   1000,
+		// Go에서는 go.delivery.reports 설정 제거됨
 	}
 
 	producer, err := kafka.NewProducer(&config)
@@ -604,8 +601,8 @@ func (ukp *UpbitKafkaProducer) Run(duration time.Duration) (map[string]interface
 
 func main() {
 	// 환경 변수에서 설정 읽기
-	kafkaServers := getEnv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-	topic := getEnv("KAFKA_TOPIC", "upbit-krw-ticker")
+	kafkaServers := getEnv("KAFKA_BOOTSTRAP_SERVERS", "192.168.0.57:9092")
+	topic := getEnv("KAFKA_TOPIC", "upbit-krw-ticker-go")
 	producerID := getEnv("PRODUCER_ID", "go")
 
 	testDurationStr := getEnv("TEST_DURATION", "60")
