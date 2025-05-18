@@ -1,15 +1,16 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21-bullseye AS builder
 
 # 빌드 의존성 설치
-RUN apk add --no-cache \
-    build-base \
-    pkgconfig \
-    librdkafka-dev
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    librdkafka-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Go 모듈 의존성 복사 및 다운로드
-COPY go.mod go.sum* ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # 소스 코드 복사
@@ -19,13 +20,13 @@ COPY go_upbit_kafka.go .
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # 실행 이미지
-FROM alpine:latest
+FROM debian:bullseye-slim
 
 # 런타임 의존성 설치
-RUN apk add --no-cache \
-    librdkafka-dev \
+RUN apt-get update && apt-get install -y \
+    librdkafka1 \
     ca-certificates \
-    tzdata
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
