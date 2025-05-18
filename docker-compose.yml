@@ -70,7 +70,7 @@ services:
       - python-producer
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=192.168.0.57:9092
-      - KAFKA_TOPIC=upbit-krw-ticker
+      - KAFKA_TOPIC=upbit-krw-ticker-go
       - TEST_DURATION=60
       - PRODUCER_ID=go
     volumes:
