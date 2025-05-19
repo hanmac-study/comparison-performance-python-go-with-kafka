@@ -1,8 +1,16 @@
 FROM python:3.11-slim
 
-# 시스템 의존성 설치
-RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
+# 필요한 패키지 설치
+RUN apt-get update && \
+    apt-get install -y \
+    fonts-nanum \
+    fonts-nanum-coding \
+    fonts-nanum-extra \
+    fontconfig && \
+    rm -rf /var/lib/apt/lists/*
+
+# 폰트 캐시 업데이트
+RUN fc-cache -f -v
 
 WORKDIR /app
 

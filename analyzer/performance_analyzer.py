@@ -73,9 +73,22 @@ class PerformanceAnalyzer:
 
     def create_visualizations(self):
         """성능 비교 시각화"""
+        import matplotlib.font_manager as fm
+
+        # 폰트 설정
+        plt.rcParams['font.family'] = 'NanumGothic'
+        plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
+
+        # 폰트가 제대로 설정되었는지 확인
+        font_list = [f.name for f in fm.fontManager.ttflist]
+        if 'NanumGothic' not in font_list:
+            # 나눔고딕이 없으면 기본 폰트 사용
+            print("Warning: NanumGothic font not found. Using default font.")
+            plt.rcParams['font.family'] = 'DejaVu Sans'
+
         plt.style.use('seaborn-v0_8')
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-        fig.suptitle('Python vs Go 성능 비교 (Confluent Kafka)', fontsize=16, fontweight='bold')
+        fig.suptitle('Python vs Go Performance Comparison (Confluent Kafka)', fontsize=16, fontweight='bold')
 
         # 새로운 구조에서 데이터 추출
         python_test_info = self.python_report.get('test_info', {})
@@ -89,7 +102,8 @@ class PerformanceAnalyzer:
         ]
         bars1 = ax1.bar(['Python', 'Go'], throughput_data, color=['#3776ab', '#00ADD8'])
         ax1.set_ylabel('Messages per Second')
-        ax1.set_title('처리량 비교')
+        ax1.set_title('Throughput Comparison')
+
 
         # 값 표시
         for bar, value in zip(bars1, throughput_data):
@@ -104,7 +118,7 @@ class PerformanceAnalyzer:
         ]
         bars2 = ax2.bar(['Python', 'Go'], total_messages_data, color=['#3776ab', '#00ADD8'])
         ax2.set_ylabel('Total Messages')
-        ax2.set_title('총 메시지 수')
+        ax2.set_title('Total Messages')
 
         # 값 표시
         for bar, value in zip(bars2, total_messages_data):
@@ -120,7 +134,7 @@ class PerformanceAnalyzer:
             ]
             bars3 = ax3.bar(['Python', 'Go'], memory_data, color=['#3776ab', '#00ADD8'])
             ax3.set_ylabel('Memory Usage (MB)')
-            ax3.set_title('평균 메모리 사용량')
+            ax3.set_title('Avg. Memory Usage')
 
             # 값 표시
             for bar, value in zip(bars3, memory_data):
@@ -141,9 +155,9 @@ class PerformanceAnalyzer:
             ax4.bar(x + width/2, go_latencies, width, label='Go', color='#00ADD8')
 
             ax4.set_ylabel('Latency (ms)')
-            ax4.set_title('메시지 처리 지연시간')
+            ax4.set_title('Message Processing Latency')
             ax4.set_xticks(x)
-            ax4.set_xticklabels(['평균', 'P95', 'P99'])
+            ax4.set_xticklabels(['Avg', 'P95', 'P99'])
             ax4.legend()
 
         # 5. Kafka 전송 지연시간 비교
@@ -160,9 +174,9 @@ class PerformanceAnalyzer:
             ax5.bar(x + width/2, go_kafka, width, label='Go', color='#00ADD8')
 
             ax5.set_ylabel('Latency (ms)')
-            ax5.set_title('Kafka 전송 지연시간')
+            ax5.set_title('Kafka Send Latency')
             ax5.set_xticks(x)
-            ax5.set_xticklabels(['평균', 'P95', 'P99'])
+            ax5.set_xticklabels(['Average', 'P95', 'P99'])
             ax5.legend()
 
         # 6. WebSocket 연결 수 및 성공률
@@ -189,14 +203,15 @@ class PerformanceAnalyzer:
         ax6_twin = ax6.twinx()
 
         # 연결 수 (막대)
-        bars = ax6.bar(['Python', 'Go'], connections_data, color=['#3776ab', '#00ADD8'], alpha=0.7, label='WebSocket 연결 수')
-        ax6.set_ylabel('WebSocket 연결 수', color='black')
-        ax6.set_title('WebSocket 연결 수 & 성공률')
+        bars = ax6.bar(['Python', 'Go'], connections_data, color=['#3776ab', '#00ADD8'], alpha=0.7, label='WebSocket Connections')
+        ax6.set_ylabel('WebSocket Connections', color='black')
+        ax6.set_title('WebSocket Connections & Success Rate')
 
         # 성공률 (선)
         success_rates = [python_success_rate, go_success_rate]
-        ax6_twin.plot(['Python', 'Go'], success_rates, color='red', marker='o', linewidth=2, markersize=8, label='메시지 전송 성공률')
-        ax6_twin.set_ylabel('메시지 전송 성공률 (%)', color='red')
+        ax6_twin.plot(['Python', 'Go'], success_rates, color='red', marker='o', linewidth=2, markersize=8, label='Message Delivery Success Rate
+')
+        ax6_twin.set_ylabel('Message Delivery Success Rate (%)', color='red')
         ax6_twin.set_ylim([95, 100])
 
         # 값 표시
