@@ -89,6 +89,7 @@ services:
     volumes:
       - ./reports:/app/reports
       - ./charts:/app/charts
+      - ./results:/app/results
     networks:
       - kafka-network
     restart: "no"

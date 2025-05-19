@@ -4,6 +4,8 @@ import numpy as np
 import os
 import pandas as pd
 import seaborn as sns
+import shutil
+import datetime
 from typing import Dict, Any
 
 
@@ -350,6 +352,32 @@ def main():
 
     # 상세 보고서 생성
     analyzer.generate_report()
+    
+    # 결과 파일 이동
+    # 현재 시간을 YYYYMMDD_HHMMSS 형식으로 포맷팅
+    now = datetime.datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    
+    # 결과 저장 디렉토리 생성
+    results_dir = f"results/reports_{timestamp}"
+    os.makedirs(results_dir, exist_ok=True)
+    
+    # reports 폴더의 파일을 새 디렉토리로 이동
+    if os.path.exists("reports"):
+        for file_name in os.listdir("reports"):
+            source_path = os.path.join("reports", file_name)
+            if os.path.isfile(source_path):
+                target_path = os.path.join(results_dir, file_name)
+                shutil.copy2(source_path, target_path)
+        print(f"분석 결과가 {results_dir} 폴더로 복사되었습니다.")
+    else:
+        # reports 폴더가 없으면 현재 디렉토리의 결과 파일을 이동
+        result_files = ["performance_comparison.png", "performance_comparison_report.md"]
+        for file_name in result_files:
+            if os.path.exists(file_name):
+                target_path = os.path.join(results_dir, file_name)
+                shutil.copy2(file_name, target_path)
+        print(f"분석 결과가 {results_dir} 폴더로 복사되었습니다.")
 
     print("분석 완료! performance_comparison.png와 performance_comparison_report.md 파일을 확인하세요.")
 

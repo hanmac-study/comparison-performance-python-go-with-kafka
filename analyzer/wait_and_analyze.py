@@ -10,7 +10,7 @@ def wait_for_reports():
     python_report_path = '/app/reports/python_performance_report.json'
     go_report_path = '/app/reports/go_performance_report.json'
 
-    max_wait_time = 300  # 최대 5분 대기
+    max_wait_time = 3600  # 최대 5분 대기
     check_interval = 5   # 5초마다 확인
     waited_time = 0
 
@@ -45,8 +45,7 @@ def create_dummy_report_if_missing(path, producer_type):
             "test_info": {
                 "producer_id": producer_type,
                 "total_messages": 0,
-                "messages_per_second": 0,
-                "total_runtime_seconds": 0,
+                "messages_per_second": 0,                "total_runtime_seconds": 0,
                 "total_markets": 0,
                 "krw_markets": 0,
                 "websocket_connections": 0

@@ -150,7 +150,7 @@ class UpbitKafkaProducer:
     def _monitor_system(self):
         while self.running:
             self.monitor.record_system_metrics()
-            time.sleep(1)
+            time.sleep(0.5)
 
     def _delivery_callback(self, err, msg):
         """Kafka 메시지 전송 결과 콜백"""
