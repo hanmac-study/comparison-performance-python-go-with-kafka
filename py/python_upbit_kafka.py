@@ -85,7 +85,7 @@ class UpbitKafkaProducer:
             'acks': "all",  # 성능 우선을 위해 1로 설정
             'retries': 3,
             'max.in.flight.requests.per.connection': 5,
-            'enable.idempotence': False,  # 단순화를 위해 비활성화
+            'enable.idempotence': True,  # 단순화를 위해 비활성화
             # 처리량 최적화
             'queue.buffering.max.messages': 1000000,
             'queue.buffering.max.kbytes': 1048576,
